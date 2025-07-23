@@ -469,9 +469,9 @@ namespace GRFEditor.Tools.Map {
 
 						if (id != GrfEditorConfiguration.FlatMapsMakerId) continue;
 
-						texture = texture.Substring(texture.IndexOf('c') + 1);
-						int[] types = texture.Split('c').Select(Int32.Parse).ToArray();
-						_mapEditor.GenerateTexture(id + "c" + texture + ".bmp", types);
+						texture = texture.Substring(texture.IndexOf('c'));
+						string[] textureFiles = texture.Split(new[] { "c" }, StringSplitOptions.RemoveEmptyEntries);
+						_mapEditor.GenerateTexture(id + "c" + texture + ".bmp", textureFiles);
 					}
 					catch {
 						try {

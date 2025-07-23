@@ -21,11 +21,12 @@ using Utilities.Extension;
 namespace GRFEditor.Tools.Map {
 	public class MapEditor {
 		private MapEditorState _state = new MapEditorState();
+		private static Random _random = new Random();
 		public string OutputTexturePath { get; set; }
 		public string InputTexturePath { get; set; }
 		public string InputMapPath { get; set; }
 		public string OutputMapPath { get; set; }
-
+	
 		public void Begin() {
 			_state = new MapEditorState();
 		}
@@ -158,6 +159,10 @@ namespace GRFEditor.Tools.Map {
 			return gnd;
 		}
 
+
+		[ThreadStatic] 
+		private static Random _local; 
+		
 		private void _setCubesAndTiles(Gnd gnd, Gat gat) {
 			string id = GrfEditorConfiguration.FlatMapsMakerId;
 
@@ -179,14 +184,17 @@ namespace GRFEditor.Tools.Map {
 			int[] cellIndexes = new int[4];
 			int[] cellTypes = new int[4];
 			//string[] cellTypesString = new string[4];
+			string[] cellTextureFiles = new string[4];
+
 			Tile tile;
 			Cube cube;
 			Cell gatCell;
-			StringBuilder b = new StringBuilder();
 
 			// For each cube...
 			for (int y = 0; y < gnd.Header.Height; y++) {
 				for (int x = 0; x < gnd.Header.Width; x++) {
+					StringBuilder b = new StringBuilder();
+					
 					// Find the texture for the tile
 					int cellIndex = 2 * (x + 2 * y * gnd.Header.Width);
 					cellIndexes[0] = cellIndex;
@@ -201,7 +209,53 @@ namespace GRFEditor.Tools.Map {
 
 						if (gatCell.IsWater == true) {
 							cellTypes[i] = -1;
-							b.Append("c-1");
+
+							// Shoreline check
+							bool n = _getGatIsWater(gat, cellIndexes[i] - gnd.Header.Width * 2);
+							bool e = _getGatIsWater(gat, cellIndexes[i] + 1);
+							bool s = _getGatIsWater(gat, cellIndexes[i] + gnd.Header.Width * 2);
+							bool w = _getGatIsWater(gat, cellIndexes[i] - 1);
+
+							int bitmask = 0;
+							if (!n) bitmask |= 1;
+							if (!e) bitmask |= 2;
+							if (!s) bitmask |= 4;
+							if (!w) bitmask |= 8;
+
+							// Diagonals: if both adjacent cardinal directions are water,
+							//if (n && e && !_getGatIsWater(gat, cellIndexes[i] - gnd.Header.Width * 2 + 1)) // NE
+							//	bitmask |= 16;
+							//if (s && e && !_getGatIsWater(gat, cellIndexes[i] + gnd.Header.Width * 2 + 1)) // SE
+							//	bitmask |= 32;
+							//if (s && w && !_getGatIsWater(gat, cellIndexes[i] + gnd.Header.Width * 2 - 1)) // SW
+							//	bitmask |= 64;
+							//if (n && w && !_getGatIsWater(gat, cellIndexes[i] - gnd.Header.Width * 2 - 1)) // NW
+							//	bitmask |= 128;
+							
+							string shoreline;
+
+							if (bitmask == 0) {
+								// Check for variants like c-1_0_0.bmp, c-1_0_1.bmp...
+								string[] shorelineVariants = Directory.GetFiles(InputTexturePath, "c-1_0_*.bmp");
+
+								if (shorelineVariants.Length > 0) {
+									// Prefer 0 variant with 80% chance
+									string preferred = Path.Combine(InputTexturePath, "c-1_0_0.bmp");
+									if (File.Exists(preferred) && _random.NextDouble() < 0.8) {
+										shoreline = "c-1_0_0";
+									} else {
+										shoreline = Path.GetFileNameWithoutExtension(shorelineVariants[_random.Next(shorelineVariants.Length)]);
+									}
+								} else {
+									shoreline = "c-1_0";
+								}
+							} else {
+								shoreline = $"c-1_{bitmask}";
+							}
+
+							// Set texture name
+							cellTextureFiles[i] = shoreline;
+							b.Append(shoreline);
 						}
 						else if (gatCell.IsInnerGutterLine == true) {
 							cellTypes[i] = -3;
@@ -247,15 +301,55 @@ namespace GRFEditor.Tools.Map {
 									cellTypes[i] = (int)gatCell.Type;
 									break;
 							}
+							//b.Append(Path.GetFileNameWithoutExtension(_getVariantTextureName(cellTypes[i])));
+							string baseName = "c" + cellTypes[i];
+							string[] variants = Directory.GetFiles(InputTexturePath, baseName + "_*.bmp");
+							string selected;
 
-							b.Append("c");
-							b.Append(cellTypes[i]);
+							if (variants.Length > 0) {
+								string preferred = Path.Combine(InputTexturePath, baseName + "_0.bmp");
+								bool hasZero = File.Exists(preferred);
+
+								if (hasZero && _random.NextDouble() < 0.8) {
+									selected = Path.GetFileNameWithoutExtension(preferred);
+								}
+								else {
+									selected = Path.GetFileNameWithoutExtension(variants[_random.Next(variants.Length)]);
+								}
+							}
+							else if (File.Exists(Path.Combine(InputTexturePath, baseName + ".bmp"))) {
+								selected = baseName;
+							}
+							else {
+								selected = "cx";
+							}
+
+							cellTextureFiles[i] = selected;  // <-- Store the filename (without .bmp)
+							b.Append(selected);
+
 						}
 					}
 					b.Append(".bmp");
 
 					string textureName = b.ToString();
 					b = new StringBuilder();
+					
+					// Check if this full tile already exists as a prebuilt file in the quadrant folder
+					//string prebuiltPath = Path.Combine(InputTexturePath, "quadrants", textureName);
+					//string targetPath = Path.Combine(OutputTexturePath, textureName);
+
+					//if (!_state.OutputTexturePaths.Contains(targetPath) && File.Exists(prebuiltPath)) {
+					//	try {
+					//		File.Copy(prebuiltPath, targetPath, overwrite: true);
+					//		lock (_state.Lock) {
+					//			_state.OutputTexturePaths.Add(targetPath);
+					//		}
+					//	}
+					//	catch (Exception ex) {
+					//		ErrorHandler.HandleException(ex);
+					//	}
+					//}
+
 
 					lock (_state.Lock) {
 						if (_state.OutputTexturePaths == null) {
@@ -268,7 +362,7 @@ namespace GRFEditor.Tools.Map {
 
 						lock (_state.Lock) {
 							if (!_state.OutputTexturePaths.Contains(texturePath)) {
-								GenerateTexture(textureName, cellTypes);
+								GenerateTexture(textureName, cellTextureFiles);
 								_state.OutputTexturePaths.Add(texturePath);
 							}
 						}
@@ -319,15 +413,22 @@ namespace GRFEditor.Tools.Map {
 				gat.Adjust(gnd);
 			}
 		}
+		
+		private bool _getGatIsWater(Gat gat, int index) {
+			if (index >= gat.Cells.Length || index < 0)
+				return true;// treat out-of-bounds as water
+			return gat.Cells[index].IsWater ?? false;
+		}
 
-		public void GenerateTexture(string textureName, IList<int> cellTypes) {
+		public void GenerateTexture(string textureName, IList<string> cellTextureFiles) {
 			var data = new byte[12288];
-
 			GrfImage img = new GrfImage(data, 64, 64, GrfImageType.Bgr24);
-			img.SetPixels(32, 0, 32, 32, _getPixels(cellTypes[0]));
-			img.SetPixels(0, 0, 32, 32, _getPixels(cellTypes[1]));
-			img.SetPixels(32, 32, 32, 32, _getPixels(cellTypes[2]));
-			img.SetPixels(0, 32, 32, 32, _getPixels(cellTypes[3]));
+
+			img.SetPixels(32, 0, 32, 32, _getPixels(cellTextureFiles[0] + ".bmp"));
+			img.SetPixels(0, 0, 32, 32, _getPixels(cellTextureFiles[1] + ".bmp"));
+			img.SetPixels(32, 32, 32, 32, _getPixels(cellTextureFiles[2] + ".bmp"));
+			img.SetPixels(0, 32, 32, 32, _getPixels(cellTextureFiles[3] + ".bmp"));
+
 			img.Save(Path.Combine(OutputTexturePath, textureName));
 
 			//WriteableBitmap bit = new WriteableBitmap(64, 64, 96, 96, PixelFormats.Bgr24, null);
@@ -347,22 +448,38 @@ namespace GRFEditor.Tools.Map {
 			//catch { }
 		}
 
-		private byte[] _getPixels(int cellType) {
-			if (_state.BufferedImages.ContainsKey(cellType))
-				return _state.BufferedImages[cellType];
+		private byte[] _getPixels(string textureFileName) {
+			if (_state.BufferedImages.ContainsKey(textureFileName.GetHashCode()))
+				return _state.BufferedImages[textureFileName.GetHashCode()];
 
-			string filePath = !File.Exists(Path.Combine(InputTexturePath, "c" + cellType + ".bmp")) ?
-																										Path.Combine(InputTexturePath, "cx.bmp") : Path.Combine(InputTexturePath, "c" + cellType + ".bmp");
+			string filePath = Path.Combine(InputTexturePath, textureFileName);
+			
+			// Fallback for shoreline: c-1_3.bmp → c-1.bmp
+			if (!File.Exists(filePath) && textureFileName.StartsWith("c-1_")) {
+				filePath = Path.Combine(InputTexturePath, "c-1.bmp");
+			}
 
+			// Fallback for other variants: c0_2.bmp → c0.bmp
+			else if (!File.Exists(filePath) && textureFileName.StartsWith("c") && textureFileName.Contains("_")) {
+				string baseName = textureFileName.Split('_')[0];
+				filePath = Path.Combine(InputTexturePath, baseName + ".bmp");
+			}
+			
+			// Final fallback
+			if (!File.Exists(filePath)) {
+				filePath = Path.Combine(InputTexturePath, "cx.bmp");
+			}
+	
 			BmpBitmapDecoder decoder = new BmpBitmapDecoder(new Uri(filePath), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.Default);
 			var frame = decoder.Frames[0];
 
 			byte[] pixels = new byte[frame.PixelHeight * frame.PixelWidth * frame.Format.BitsPerPixel / 8];
 			frame.CopyPixels(pixels, frame.PixelWidth * frame.Format.BitsPerPixel / 8, 0);
 
-			_state.BufferedImages[cellType] = pixels;
+			_state.BufferedImages[textureFileName.GetHashCode()] = pixels;
 			return pixels;
 		}
+
 
 		private Rsw _configRswFile(byte[] rswData, string mapName, Gnd gnd) {
 			Rsw rsw;
@@ -436,6 +553,23 @@ namespace GRFEditor.Tools.Map {
 			}
 			catch (Exception err) {
 				ErrorHandler.HandleException(err);
+			}
+		}
+		
+		private string _getVariantTextureName(int cellType) {
+			string baseName = "c" + cellType;
+			string basePath = Path.Combine(InputTexturePath, baseName + ".bmp");
+			string[] variants = Directory.GetFiles(InputTexturePath, baseName + "_*.bmp");
+
+			if (variants.Length > 0) {
+				string chosen = Path.GetFileName(variants[_random.Next(variants.Length)]);
+				return chosen;
+			}
+			else if (File.Exists(basePath)) {
+				return baseName + ".bmp";
+			}
+			else {
+				return "cx.bmp";
 			}
 		}
 
