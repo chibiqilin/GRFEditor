@@ -21,11 +21,20 @@ using Utilities.Extension;
 namespace GRFEditor.Tools.Map {
 	public class MapEditor {
 		private MapEditorState _state = new MapEditorState();
-		private static Random _random = new Random();
 		public string OutputTexturePath { get; set; }
 		public string InputTexturePath { get; set; }
 		public string InputMapPath { get; set; }
 		public string OutputMapPath { get; set; }
+		[ThreadStatic]
+		private static Random _threadRandom;
+
+		private static Random GetRandom() {
+			if (_threadRandom == null) {
+				_threadRandom = new Random(unchecked(Environment.TickCount * 31 + System.Threading.Thread.CurrentThread.ManagedThreadId));
+			}
+			return _threadRandom;
+		}
+
 	
 		public void Begin() {
 			_state = new MapEditorState();
@@ -241,10 +250,10 @@ namespace GRFEditor.Tools.Map {
 								if (shorelineVariants.Length > 0) {
 									// Prefer 0 variant with 80% chance
 									string preferred = Path.Combine(InputTexturePath, "c-1_0_0.bmp");
-									if (File.Exists(preferred) && _random.NextDouble() < 0.8) {
+									if (File.Exists(preferred) && GetRandom().NextDouble() < 0.8) {
 										shoreline = "c-1_0_0";
 									} else {
-										shoreline = Path.GetFileNameWithoutExtension(shorelineVariants[_random.Next(shorelineVariants.Length)]);
+										shoreline = Path.GetFileNameWithoutExtension(shorelineVariants[GetRandom().Next(shorelineVariants.Length)]);
 									}
 								} else {
 									shoreline = "c-1_0";
@@ -310,11 +319,11 @@ namespace GRFEditor.Tools.Map {
 								string preferred = Path.Combine(InputTexturePath, baseName + "_0.bmp");
 								bool hasZero = File.Exists(preferred);
 
-								if (hasZero && _random.NextDouble() < 0.8) {
+								if (hasZero && GetRandom().NextDouble() < 0.8) {
 									selected = Path.GetFileNameWithoutExtension(preferred);
 								}
 								else {
-									selected = Path.GetFileNameWithoutExtension(variants[_random.Next(variants.Length)]);
+									selected = Path.GetFileNameWithoutExtension(variants[GetRandom().Next(variants.Length)]);
 								}
 							}
 							else if (File.Exists(Path.Combine(InputTexturePath, baseName + ".bmp"))) {
@@ -562,7 +571,7 @@ namespace GRFEditor.Tools.Map {
 			string[] variants = Directory.GetFiles(InputTexturePath, baseName + "_*.bmp");
 
 			if (variants.Length > 0) {
-				string chosen = Path.GetFileName(variants[_random.Next(variants.Length)]);
+				string chosen = Path.GetFileName(variants[GetRandom().Next(variants.Length)]);
 				return chosen;
 			}
 			else if (File.Exists(basePath)) {
